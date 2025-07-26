@@ -111,9 +111,39 @@ class ResidualCNNLayer(nn.Module):
 
 class Resnet(nn.Module):
 
-    def __init__(self):
+    def __init__(
+        self,
+        image_size: int,
+        in_channels: int,
+        out_channels: list[int],
+        blocks: int,
+        input_kernel_size: int,
+        n_classes: int,
+    ):
         super().__init__()
+        self.image_size = image_size
+        self.first_conv = nn.Conv2d(
+            in_channels, out_channels[0], kernel_size=input_kernel_size, stride=2, padding=1
+        )
+        self.residual_blocks = []
+        for i, c in enumerate(out_channels):
+            for b in range(blocks):
+                downsample = False
+                if b == 0 and i != 0:
+                    # Only downsample on the first block when channel size changes
+                    downsample = True
+
+                self.residual_blocks.append(
+                    ResidualCNNLayer(c, kernel=3, layers=2, downsample=downsample)
+                )
+        self.residual_blocks = nn.ModuleList(self.residual_blocks)
+        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.out = nn.LazyLinear(n_classes)
 
     def forward(self, x: torch.Tensor):
-
-        return x
+        x = self.first_conv(x)
+        for layer in self.residual_blocks:
+            x = layer(x)
+        
+        x = self.global_pool(x)
+        return self.out(x)
