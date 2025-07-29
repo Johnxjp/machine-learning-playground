@@ -26,7 +26,7 @@ class Cifar10DatasetFromFile(Dataset):
         image = self.images[index]
         if self.transforms:
             image = self.transforms(image)
-        return image, torch.Tensor(label)
+        return image, torch.tensor(label, dtype=torch.long)
 
 
 class Cifar10DatasetFromArray(Dataset):
@@ -49,4 +49,4 @@ class Cifar10DatasetFromArray(Dataset):
         image = self.images[index]
         if self.transforms:
             image = self.transforms(image)
-        return image, torch.Tensor(label)
+        return image, torch.tensor(label, dtype=torch.long)

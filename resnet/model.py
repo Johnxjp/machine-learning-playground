@@ -122,9 +122,11 @@ class Resnet(nn.Module):
     ):
         super().__init__()
         self.image_size = image_size
-        self.first_conv = nn.Conv2d(
+        self.conv1 = nn.Conv2d(
             in_channels, out_channels[0], kernel_size=input_kernel_size, stride=1, padding=1
         )
+        self.act1 = nn.ReLU()
+        self.norm1 = nn.BatchNorm2d(out_channels[0])
         self.residual_blocks = []
         in_channels = out_channels[0]
         for c in out_channels:
@@ -140,7 +142,7 @@ class Resnet(nn.Module):
         self.out = nn.LazyLinear(n_classes)
 
     def forward(self, x: torch.Tensor):
-        x = self.first_conv(x)
+        x = self.act1(self.norm1(self.conv1(x)))
         for layer in self.residual_blocks:
             x = layer(x)
 
