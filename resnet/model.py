@@ -62,6 +62,8 @@ class ResidualCNNLayer(nn.Module):
         )
         if batch_normalise:
             self.layers.append(nn.BatchNorm2d(out_channels))
+        
+        self.layers.append(nn.ReLU())
 
         for i in range(1, layers):
             if i < layers - 1:
@@ -101,12 +103,14 @@ class ResidualCNNLayer(nn.Module):
                 )
             else:
                 self.residual_projection = ShortcutPadLayer(out_channels)
+        
+        self.final_act = nn.ReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         residual = self.residual_projection(x)
         for layer in self.layers:
             x = layer(x)
-        return nn.functional.relu(x + residual)
+        return self.final_act(x + residual)
 
 
 class Resnet(nn.Module):
