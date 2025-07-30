@@ -188,7 +188,7 @@ class Resnet(nn.Module):
 
         self.residual_blocks = nn.ModuleList(self.residual_blocks)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.out = nn.LazyLinear(n_classes)
+        self.out = nn.Linear(64, n_classes)
 
     def forward(self, x: torch.Tensor):
         x = self.act1(self.norm1(self.conv1(x)))
@@ -198,3 +198,13 @@ class Resnet(nn.Module):
         x = self.pool(x)
         x = x.view(x.size(0), -1)
         return self.out(x)
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
