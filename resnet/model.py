@@ -188,7 +188,7 @@ class Resnet(nn.Module):
 
         self.residual_blocks = nn.ModuleList(self.residual_blocks)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.out = nn.Linear(64, n_classes)
+        self.out = nn.LazyLinear(n_classes)
 
     def forward(self, x: torch.Tensor):
         x = self.act1(self.norm1(self.conv1(x)))
