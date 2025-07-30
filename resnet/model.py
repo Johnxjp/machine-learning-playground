@@ -13,17 +13,52 @@ class ShortcutPadLayer(nn.Module):
     def __init__(self, out_channels: int):
         super().__init__()
         self.out_channels = out_channels
+        self.pool = nn.AvgPool2d(kernel_size=1, stride=2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = nn.functional.avg_pool2d(x, kernel_size=1, stride=2)
-        batch, channels, h, w = x.shape
-        padded = torch.zeros(batch, self.out_channels, h, w, dtype=x.dtype, device=x.device)
+        x = self.pool(x)
+        batch, input_channels, h, w = x.shape
         # Copy original channels to first part
-        padded[:, :channels, :, :] = x
+        padded = torch.zeros(batch, self.out_channels, h, w, dtype=x.dtype, device=x.device)
+        padded[:, :input_channels, :, :] = x
         return padded
 
 
 class ResidualCNNLayer(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel: int,
+        stride: int,
+        batch_normalise: bool,
+        add_activation: bool,
+    ):
+        """
+        in_channels : Number of input channels
+        out_channels : Number of output channels
+        kernel : Kernel size for the convolution
+        stride : Stride for the convolution
+        batch_normalise : Add batch normalisation after the convolution
+        add_activation : Add activation function after covolution or batch normalisation
+        """
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel,
+            stride=stride,
+            bias=False,
+            padding=1,
+        )
+        self.norm = nn.BatchNorm2d(out_channels) if batch_normalise else nn.Identity()
+        self.act = nn.ReLU() if add_activation else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.act(self.norm(self.conv(x)))
+
+
+class ResidualBlock(nn.Module):
 
     def __init__(
         self,
@@ -36,62 +71,52 @@ class ResidualCNNLayer(nn.Module):
         batch_normalise: bool = True,
     ):
         """
-        channels : Number of input channels
+        in_channels : Number of input channels
+        out_channels : Number of output channels
         kernel : Kernel size for the convolution
-        layers : Number of convolution layers to stack
-        downsample : Reduce the feature size map by half applying stride of 2
-        shortcut_method : Method for the shortcut connection when dimension changes, either "projection" or "pad"
+        layers : Number of layers in the block
+        stride : Stride for the first convolution
+        shortcut_method : Method to handle the residual connection, either "projection" or "pad"
+        batch_normalise : Whether to add batch normalisation after each convolution
         """
         super().__init__()
-        self.n_layers = layers
-
         assert shortcut_method in ["projection", "pad"]
-        self.shortcut_method = shortcut_method
-        self.layers = []
 
-        # First layer
+        self.layers = []
         self.layers.append(
-            nn.Conv2d(
+            ResidualCNNLayer(
                 in_channels,
                 out_channels,
-                kernel_size=kernel,
+                kernel=kernel,
                 stride=stride,
-                bias=False,
-                padding=1,
+                batch_normalise=batch_normalise,
+                add_activation=True,
             )
         )
-        if batch_normalise:
-            self.layers.append(nn.BatchNorm2d(out_channels))
-        
-        self.layers.append(nn.ReLU())
 
-        for i in range(1, layers):
-            if i < layers - 1:
-                self.layers.append(
-                    nn.Conv2d(
-                        out_channels,
-                        out_channels,
-                        kernel_size=kernel,
-                        bias=False,
-                        padding=1,
-                    )
+        for _ in range(1, layers - 1):
+            self.layers.append(
+                ResidualCNNLayer(
+                    out_channels,
+                    out_channels,
+                    kernel=kernel,
+                    stride=1,
+                    batch_normalise=batch_normalise,
+                    add_activation=True,
                 )
-                if batch_normalise:
-                    self.layers.append(nn.BatchNorm2d(out_channels))
-                self.layers.append(nn.ReLU())
-            else:
-                # Don't add ReLU to final layer. This happens after residual is added
-                self.layers.append(
-                    nn.Conv2d(
-                        out_channels,
-                        out_channels,
-                        kernel_size=kernel,
-                        padding=1,
-                        bias=False,
-                    )
-                )
-                if batch_normalise:
-                    self.layers.append(nn.BatchNorm2d(out_channels))
+            )
+
+        # Don't add ReLU to final layer. This happens after residual is added
+        self.layers.append(
+            ResidualCNNLayer(
+                out_channels,
+                out_channels,
+                kernel=kernel,
+                stride=1,
+                batch_normalise=batch_normalise,
+                add_activation=False,
+            )
+        )
 
         self.layers = nn.ModuleList(self.layers)
         self.residual_projection = nn.Identity()
@@ -103,7 +128,7 @@ class ResidualCNNLayer(nn.Module):
                 )
             else:
                 self.residual_projection = ShortcutPadLayer(out_channels)
-        
+
         self.final_act = nn.ReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -117,15 +142,17 @@ class Resnet(nn.Module):
 
     def __init__(
         self,
-        image_size: int,
         in_channels: int,
         out_channels: list[int],
         blocks: int,
         input_kernel_size: int,
+        block_kernel_size: int,
+        block_layers: int,
+        shortcut_method: str,
         n_classes: int,
+        batch_norm: bool = True,
     ):
         super().__init__()
-        self.image_size = image_size
         self.conv1 = nn.Conv2d(
             in_channels, out_channels[0], kernel_size=input_kernel_size, stride=1, padding=1
         )
@@ -133,16 +160,34 @@ class Resnet(nn.Module):
         self.norm1 = nn.BatchNorm2d(out_channels[0])
         self.residual_blocks = []
         in_channels = out_channels[0]
-        for c in out_channels:
-            for _ in range(blocks):
-                stride = 2 if c > in_channels else 1
-                self.residual_blocks.append(
-                    ResidualCNNLayer(in_channels, c, kernel=3, layers=2, stride=stride)
+        for i, out_channel in enumerate(out_channels):
+            self.residual_blocks.append(
+                ResidualBlock(
+                    in_channels,
+                    out_channel,
+                    kernel=block_kernel_size,
+                    layers=block_layers,
+                    stride=2 if i > 0 else 1,  # First set of blocks do not change size
+                    shortcut_method=shortcut_method,
+                    batch_normalise=batch_norm,
                 )
-                in_channels = c
+            )
+            in_channels = out_channel
+            for _ in range(blocks - 1):
+                self.residual_blocks.append(
+                    ResidualBlock(
+                        in_channels,
+                        out_channel,
+                        kernel=block_kernel_size,
+                        layers=block_layers,
+                        stride=1,
+                        shortcut_method=shortcut_method,
+                        batch_normalise=batch_norm,
+                    )
+                )
 
         self.residual_blocks = nn.ModuleList(self.residual_blocks)
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.pool = nn.AdaptiveAvgPool2d(1)
         self.out = nn.LazyLinear(n_classes)
 
     def forward(self, x: torch.Tensor):
@@ -150,6 +195,6 @@ class Resnet(nn.Module):
         for layer in self.residual_blocks:
             x = layer(x)
 
-        x = self.global_pool(x)
+        x = self.pool(x)
         x = x.view(x.size(0), -1)
         return self.out(x)
