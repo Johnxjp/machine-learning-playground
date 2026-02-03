@@ -23,11 +23,16 @@ A PyTorch implementation of a convolutional autoencoder that compresses 28×28 M
 - `model.py` - Encoder, Decoder, and ConvAutoencoder classes
 - `data.py` - MNIST data loading utilities
 - `utils.py` - Visualization and helper functions
-- `train.py` - Training script (CLI version)
-- `training.ipynb` - Training notebook with experiments
-- `inference.py` - Inference API for trained models
+- `train.py` - Training script for autoencoder (CLI version)
+- `training.ipynb` - Training notebook for autoencoder
+- `latent_exploration.ipynb` - Interactive notebook for exploring latent space
+- `inference.py` - Inference API for trained autoencoder
+- `classifier.py` - MNIST digit classifier with transfer learning support
+- `classifier_data.py` - Data loading for classification
+- `train_classifier.py` - Training script for classifier
 - `test_shapes.py` - Shape verification tests
 - `examples.sh` - Example training commands
+- `CLASSIFIER_RESULTS.md` - Transfer learning results and comparisons
 
 ## Quick Start
 
@@ -93,6 +98,55 @@ This will:
 2. Generate reconstruction visualizations
 3. Show latent space interpolation between digits
 4. Save results to PNG files
+
+### Latent Space Exploration
+
+Open `latent_exploration.ipynb` to interactively explore the latent space:
+
+**Features:**
+- Load trained models and analyze latent space statistics
+- Generate images from random latent vectors (normal, uniform, or learned distributions)
+- Input custom latent vectors and see decoder outputs
+- Explore what individual latent dimensions control
+- Perform latent space arithmetic (averaging, addition, subtraction)
+- Compare real MNIST digits with generated images
+
+This notebook is perfect for understanding what the autoencoder has learned and how the latent space is structured.
+
+### MNIST Digit Classification (Transfer Learning)
+
+Train a digit classifier using the pre-trained autoencoder encoder:
+
+**From scratch:**
+```bash
+python train_classifier.py --epochs 10 --latent-dim 16
+```
+
+**Transfer learning with frozen encoder (fast):**
+```bash
+python train_classifier.py \
+  --epochs 10 \
+  --latent-dim 16 \
+  --use-pretrained \
+  --encoder-checkpoint test_checkpoint.pth \
+  --freeze-encoder
+```
+
+**Transfer learning with fine-tuning (best accuracy):**
+```bash
+python train_classifier.py \
+  --epochs 10 \
+  --latent-dim 16 \
+  --use-pretrained \
+  --encoder-checkpoint test_checkpoint.pth
+```
+
+**Results (1 epoch):**
+- From scratch: 94.14% test accuracy
+- Transfer (frozen): 95.48% test accuracy (+1.34%, 65% faster)
+- Transfer (fine-tuned): 97.34% test accuracy (+3.20%)
+
+See `CLASSIFIER_RESULTS.md` for detailed comparison and analysis.
 
 ## Configuration
 
